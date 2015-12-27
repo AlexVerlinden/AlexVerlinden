@@ -24,7 +24,7 @@ dat_dir <- "./TZ_crops"
 ban <- read.csv(paste(dat_dir, "/Crops_NTZ_short2.csv", sep= ""), header=T, sep=",")
 
 #download grids for TZ  40 MB
-download.file("https://www.dropbox.com/s/fwps69p6bl5747t/TZ_grids2.zip?dl=0","./TZ_crops/TZ_grids2.zip")
+download.file("https://www.dropbox.com/s/fwps69p6bl5747t/TZ_grids2.zip?dl=0","./TZ_crops/TZ_grids2.zip",  mode="wb")
 unzip("./TZ_grids2.zip", exdir=dat_dir, overwrite=T)
 glist <- list.files(path=dat_dir, pattern="tif", full.names=T)
 grid <- stack(glist)
@@ -47,8 +47,10 @@ banpresabs=na.omit(banpresabs)
 colnames(banpresabs)[1]="ban"
 banpresabs$ban=as.factor(banpresabs$ban)
 summary(banpresabs)
+download.file("https://www.dropbox.com/s/nyvzq5a5v6v4io9/TZ_cropmask.zip?dl=0","./TZ_crops/TZ_cropmask.zip",  mode="wb")
+unzip("./TZ_crops/TZ_cropmask.zip", exdir=dat_dir, overwrite=T)
 
-crp=raster("/Users/alexverlinden/Documents/R-testing/crops/TZ_banana/TZ_cropmask.tif")
+crp=raster("./TZ_crops/TZ_cropmask.tif")
 crp[crp==0]=NA
 
 ###### Regressions 
