@@ -19,13 +19,13 @@ dir.create("TZ_crops", showWarnings=F)
 dat_dir <- "./TZ_crops"
 # download crop presence/absence locations
 # these are data from 2015 crop scout ODK forms
-#download.file("https://www.dropbox.com/s/9gowecnxvxhch6w/Crops_NTZ_short2.csv?dl=0", "./TZ_crops/Crops_NTZ_short2.csv", mode="wb")
+download.file("https://www.dropbox.com/s/9gowecnxvxhch6w/Crops_NTZ_short2.csv?dl=0", "./TZ_crops/Crops_NTZ_short2.csv", mode="wb")
 # note that 0 and 1 are not ok for Caret for classifications, should be N and Y or similar
 ban <- read.csv(paste(dat_dir, "/Crops_NTZ_short2.csv", sep= ""), header=T, sep=",")
 
 #download grids for TZ  40 MB
 download.file("https://www.dropbox.com/s/fwps69p6bl5747t/TZ_grids2.zip?dl=0","./TZ_crops/TZ_grids2.zip",  mode="wb")
-unzip("./TZ_grids2.zip", exdir=dat_dir, overwrite=T)
+unzip("./TZ_crops/TZ_grids2.zip", exdir=dat_dir, overwrite=T)
 glist <- list.files(path=dat_dir, pattern="tif", full.names=T)
 grid <- stack(glist)
 
@@ -95,4 +95,4 @@ banmask2=banmask*crp
 plot(banmask2, legend=F)
 
 dir.create("TZ_results", showWarnings=F)
-rf=writeRaster(banglmnet.pred, filename="./TZ_results/TZ_banana_2015_glm", format= "GTiff", overwrite=TRUE)
+rf=writeRaster(banmask2, filename="./TZ_results/TZ_banana_2015_glm", format= "GTiff", overwrite=TRUE)
