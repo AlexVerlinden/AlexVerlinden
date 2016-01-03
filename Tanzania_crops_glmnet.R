@@ -18,10 +18,11 @@ require(e1071)
 dir.create("TZ_crops", showWarnings=F)
 dat_dir <- "./TZ_crops"
 # download crop presence/absence locations
-# these are data from 2015 crop scout ODK forms
-download.file("https://www.dropbox.com/s/9gowecnxvxhch6w/Crops_NTZ_short2.csv?dl=0", "./TZ_crops/Crops_NTZ_short2.csv", mode="wb")
+# these are data from 2015 crop scout ODK forms n= 2087
+download.file("https://www.dropbox.com/s/du2xye4njujypc1/Crop_NTZ_march_2016.csv?dl=0", "./TZ_crops/Crop_NTZ_march_2016.csv", mode="wb")
+
 # note that 0 and 1 are not ok for Caret for classifications, should be N and Y or similar
-ban <- read.csv(paste(dat_dir, "/Crops_NTZ_short2.csv", sep= ""), header=T, sep=",")
+ban <- read.csv(paste(dat_dir, "/Crop_NTZ_march_2016.csv", sep= ""), header=T, sep=",")
 
 #download grids for TZ  40 MB
 download.file("https://www.dropbox.com/s/fwps69p6bl5747t/TZ_grids2.zip?dl=0","./TZ_crops/TZ_grids2.zip",  mode="wb")
@@ -31,7 +32,7 @@ grid <- stack(glist)
 
 #+ Data setup for TZ crops--------------------------------------------------------------
 # Project crop data to grid CRS
-ban.proj <- as.data.frame(project(cbind(ban$long, ban$lat), "+proj=laea +ellps=WGS84 +lon_0=20 +lat_0=5 +units=m +no_defs"))
+ban.proj <- as.data.frame(project(cbind(ban$X_gps_longitude, ban$X_gps_latitude), "+proj=laea +ellps=WGS84 +lon_0=20 +lat_0=5 +units=m +no_defs"))
 colnames(ban.proj) <- c("x","y")
 coordinates(ban.proj) <- ~x+y  #convert to Spatial DataFrame
 projection(ban.proj) <- projection(grid)
@@ -64,7 +65,13 @@ maizepresabs$maize=as.factor(maizepresabs$maize)
 whtpresabs=cbind(ban$wheat, banex)
 whtpresabs=na.omit(whtpresabs)
 colnames(whtpresabs)[1]="wheat"
-whtpresabs$whear=as.factor(whtpresabs$wheat)
+whtpresabs$wheat=as.factor(whtpresabs$wheat)
+
+#for sunflower
+sunpresabs=cbind(ban$Sunflower, banex)
+sunpresabs=na.omit(sunpresabs)
+colnames(sunpresabs)[1]="sunflower"
+sunpresabs$sunflower=as.factor(sunpresabs$sunflower)
 
 #for Green beans
 beanpresabs=cbind(ban$legume.beans, banex)
@@ -160,6 +167,12 @@ milIndex=createDataPartition(milpresabs$millet, p = 2/3, list = FALSE, times = 1
 milTrain <- milpresabs[ milIndex,]
 milTest  <- milpresabs[-milIndex,]
 milTest= na.omit(milTest)
+
+# Sunflower
+sunIndex=createDataPartition(sunpresabs$sunflower, p = 2/3, list = FALSE, times = 1)
+sunTrain <- sunpresabs[ sunIndex,]
+sunTest  <- sunpresabs[-sunIndex,]
+sunTest= na.omit(sunTest)
 
 #Bean
 beanIndex=createDataPartition(beanpresabs$bean, p = 2/3, list = FALSE, times = 1)
@@ -292,7 +305,7 @@ beanmask=beanglmnet.pred>bean.thld
 beanmask2=beanmask*crp
 plot(beanmask2, legend=F)
 
-#write maize results
+#write bean results
 rf=writeRaster(beanmask2.pred, filename="./TZ_results/TZ_bean_2015_glm", format= "GTiff", overwrite=TRUE)
 
 #glmnet using binomial distribution for cassava
@@ -321,6 +334,28 @@ plot(casmask2, legend=F)
 #write cassava results
 rf=writeRaster(casmask2.pred, filename="./TZ_results/TZ_cassava_2015_glm", format= "GTiff", overwrite=TRUE)
 
+#glmnet using binomial distribution for sunflower
+sun.glm=train(sunflower~., data=sunTrain, family="binomial", method = "glmnet", metric = "Accuracy", trControl=objControl)
+predictions=predict(sun.glm, sunTest[,2:27], type="prob")
+#confusionMatrix on cross validation
+confusionMatrix(sun.glm)
+#variable importance
+plot(varImp(sun.glm,scale=F))
+#evaluate prediction
+suntest=cbind(sunTest, predictions)
+sunp=subset(suntest, sunflower=="Y", select=c(Y) )
+suna=subset(suntest, sunflower=="N", select=c(Y))
+sun.eval=evaluate(p=sunp[,1],a=suna[,1])
+sun.eval
+plot(sun.eval, 'ROC') ## plot ROC curve
+sun.thld <- threshold(sun.eval, 'spec_sens') ## TPR+TNR threshold for classification
+#spatial predictions
+sunglm.pred <- predict(grid,sun.glm, type="prob") 
+sunglmnet.pred=1-sunglm.pred
+sunmask=sunglmnet.pred>sun.thld
+sunmask2=sunmask*crp
+plot(sunmask2, legend=F)
+
 
 #glmnet using binomial distribution for rice
 rice.glm=train(rice ~ ., data=riceTrain, family= "binomial",method="glmnet",metric="Accuracy", trControl=objControl)
@@ -339,7 +374,7 @@ rice.eval
 plot(rice.eval, 'ROC') ## plot ROC curve
 rice.thld <- threshold(rice.eval, 'spec_sens') ## TPR+TNR threshold for classification
 #spatial predictions
-riceglm.pred <- predict(rice.glm, type="prob") 
+riceglm.pred <- predict(grid, rice.glm, type="prob") 
 riceglmnet.pred=1-riceglm.pred
 ricemask=riceglmnet.pred>rice.thld
 ricemask2=ricemask*crp
@@ -365,7 +400,7 @@ sg.eval
 plot(sg.eval, 'ROC') ## plot ROC curve
 sg.thld <- threshold(sg.eval, 'spec_sens') ## TPR+TNR threshold for classification
 #spatial predictions
-sgglm.pred <- predict(sg.glm, type="prob") 
+sgglm.pred <- predict(grid, sg.glm, type="prob") 
 sgglmnet.pred=1-sgglm.pred
 sgmask=sgglmnet.pred>sg.thld
 sgmask2=sgmask*crp
@@ -391,7 +426,7 @@ cow.eval
 plot(cow.eval, 'ROC') ## plot ROC curve
 cow.thld <- threshold(cow.eval, 'spec_sens') ## TPR+TNR threshold for classification
 #spatial predictions
-cowglm.pred <- predict(cow.glm, type="prob") 
+cowglm.pred <- predict(grid, cow.glm, type="prob") 
 cowglmnet.pred=1-cowglm.pred
 cowmask=cowglmnet.pred>cow.thld
 cowmask2=cowmask*crp
@@ -417,7 +452,7 @@ soy.eval
 plot(soy.eval, 'ROC') ## plot ROC curve
 soy.thld <- threshold(soy.eval, 'spec_sens') ## TPR+TNR threshold for classification
 #spatial predictions
-soyglm.pred <- predict(soy.glm, type="prob") 
+soyglm.pred <- predict(grid, soy.glm, type="prob") 
 soyglmnet.pred=1-soyglm.pred
 soymask=soyglmnet.pred>soy.thld
 soymask2=soymask*crp
@@ -443,7 +478,7 @@ wht.eval
 plot(wht.eval, 'ROC') ## plot ROC curve
 wht.thld <- threshold(wht.eval, 'spec_sens') ## TPR+TNR threshold for classification
 #spatial predictions
-whtglm.pred <- predict(wht.glm, type="prob") 
+whtglm.pred <- predict(grid, wht.glm, type="prob") 
 whtglmnet.pred=1-whtglm.pred
 whtmask=whtglmnet.pred>wht.thld
 whtmask2=whtmask*crp
@@ -469,7 +504,7 @@ mil.eval
 plot(mil.eval, 'ROC') ## plot ROC curve
 mil.thld <- threshold(mil.eval, 'spec_sens') ## TPR+TNR threshold for classification
 #spatial predictions
-milglm.pred <- predict(mil.glm, type="prob") 
+milglm.pred <- predict(grid, mil.glm, type="prob") 
 milglmnet.pred=1-milglm.pred
 milmask=milglmnet.pred>mil.thld
 milmask2=milmask*crp
