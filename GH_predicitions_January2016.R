@@ -111,6 +111,7 @@ crpdnn.test <- predict(CRP.dnn, crpTest) # predict test set
 confusionMatrix(crpdnn.test, crpTest$CRP, "Y") ## print validation summaries
 crpdnn.pred <- predict(grid, CRP.dnn, type="prob")
 
+
 #+ Random forests <randomForest> -------------------------------------------
 # out-of-bag predictions
 oob <- trainControl(method = "oob")
@@ -200,6 +201,7 @@ hspnn.pred <- predict(grid, HSP.nn, type = "prob") ## spatial predictions
 
 #+ Ensemble predictions <rf>, <gbm>, <nnet> -------------------------------
 # Ensemble set-up
+
 pred <- stack(1-crprf.pred, 1-crpgbm.pred, 1-crpnn.pred, 1-crpglm.pred, 1-crpdnn.pred,
               1-wcprf.pred, 1-wcpgbm.pred, 1-wcpnn.pred,
               1-hsprf.pred, 1-hspgbm.pred, 1-hspnn.pred)
@@ -234,6 +236,13 @@ CRP.ens <- train(CRP ~ CRPrf + CRPgbm + CRPnn + CRPglm +CRPdnn, data = crpensTes
                  trControl = ens)
 crpens.test <- predict(CRP.ens, crpensTest,  type="prob") ## predict test-set
 confusionMatrix(crpens.test, crpTest$CRP, "Y") ## print validation summaries
+
+CRP.ens <- train(CRP ~ CRPrf + CRPgbm + CRPnn + CRPglm, data = crpensTest,
+                 family = "binomial", 
+                 method = "glmnet",
+                 trControl = ens)
+crp.pred <- predict(CRP.ens, crpensTest, type="prob")
+
 crp.test <- cbind(crpensTest, crp.pred)
 crp <- subset(crp.test, CRP=="Y", select=c(Y))
 cra <- subset(crp.test, CRP=="N", select=c(Y))
