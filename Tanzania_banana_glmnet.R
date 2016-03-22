@@ -5,7 +5,7 @@
 #script in development to test crop distribution model with glmnet based on presence/absence from crop scout
 # Alex Verlinden November 2015 based on M. Walsh and J.Chen
 #+ Required packages
-# install.packages(c("downloader","raster","rgdal", "caret", e1071")), dependencies=TRUE)
+# #install.packages(c("downloader","raster","rgdal", "caret", e1071")), dependencies=TRUE)
 require(downloader)
 require(raster)
 require(rgdal)
