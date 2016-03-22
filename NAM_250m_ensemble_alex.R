@@ -27,6 +27,17 @@ unzip("./NAM_bush/NAMGRIDS_250.zip", exdir=dat_dir, overwrite=T)
 glist <- list.files(path=dat_dir, pattern="tif", full.names=T)
 grid <- stack(glist)
 t=scale(grid, center=TRUE, scale=TRUE)
+
+# download GeoSurvey Namibia data
+download("https://www.dropbox.com/s/r92xj2ab2tjvlp6/NAM_woody_short.csv?dl=0", "./NAM_data/NAM_woody_short.csv", mode="wb")
+bush <- read.table(paste(dat_dir, "/NAM_woody_cover2015_alex.csv", sep=""), header=T, sep=",")
+bush <- na.omit(bush)
+# download Namibia 250 m Gtifs (~ Mb) and stack in raster
+download("https://www.dropbox.com/s/8mpat9mohyst1fj/NAMGRIDS_250.zip?dl=0", "./NAM_data/NAM.zip", mode="wb")
+unzip("./NAM_data/NAM.zip", exdir="./NAM_data", overwrite=T)
+glist <- list.files(path="./NAM_data", pattern="tif", full.names=T)
+grid <- stack(glist)
+
 #+ Data setup --------------------------------------------------------------
 # Project GeoSurvey coords to grid CRS
 bush.proj <- as.data.frame(project(cbind(bush$Longitude, bush$Latitude), "+proj=laea +ellps=WGS84 +lon_0=20 +lat_0=5 +units=m +no_defs"))
@@ -36,6 +47,7 @@ coordinates(bush) <- ~x+y
 projection(bush) <- projection(grid)
 
 # Extract gridded variables at GeoSurvey test data locations (n~26k)
+
 bushgrid=extract(t, bush)
 
 # Assemble dataframes
@@ -101,14 +113,6 @@ predictions <- predict(bush60.glm, bush6Test, type="prob")
 plot(varImp(bush60.glm,scale=F))
 
 
-objControl <- trainControl(method='cv', number=10, returnResamp='none')
-#glmnet using binomial distribution
-bush0.glm=train(ban ~ ., data=bush0Train, family= "binomial",method="glmnet",metric="Accuracy", trControl=objControl)
-
-predictions <- predict(bush0.glm, bush0Test, type="prob")
-
-plot(varImp(bush0.glm,scale=F))
-
 #+ Random forests <randomForest> -------------------------------------------
 # out-of-bag predictions
 oob <- trainControl(method = "oob")
@@ -120,7 +124,7 @@ bush6.rf <- train(bush60 ~ ., data = bush6Train,
 bushrf.test <- predict(bush6.rf, bush6Test, type="prob") ## predict test-set
 confusionMatrix(bushrf.test, bush6Test$bush60, "Y") ## print validation summaries
 bushrf.pred <- predict(t, bush6.rf, type = "prob") ## spatial predictions
-plot(1-bushrf.pred)
+
 
 #importance of variables to RF
 imprf=varImp(bush6.rf)
@@ -154,7 +158,6 @@ bush60.nn <- train(bush60 ~ ., data = bush6Train,
 bush60nn.test <- predict(bush60.nn, bush6Test) ## predict test-set
 confusionMatrix(bush60nn.test, bush6Test$bush60, "Y") ## print validation summaries
 bush60nn.pred <- predict(t, bush60.nn, type = "prob") ## spatial predictions
-
 #variables contribution
 impnn=varImp(bush60.nn)
 plot(impnn, main = "Variables contribution to Neural Net (expert) cover >60%")
@@ -198,7 +201,6 @@ bushmask <- 1-bushens.pred > bush.thld
 bush60ens=1-bushens.pred
 plot(bush60ens)
 plot(bushmask, axes = F, legend = F)
-
 impens=varImp(bush60.ens)
 plot(impens, main = "Regression contribution to Ensemble (expert) cover >60%")
 
@@ -210,9 +212,7 @@ dir.create("NAM_results", showWarnings=F)
 # Export Gtif's to "./NAM_results"
 
 #write tiff
-rf=writeRaster(1-bushens.pred,filename="./NAM_Results/bush_60%_raw2.tif", format= "GTiff", overwrite = TRUE)
-
-
+rf=writeRaster(1-bushens.pred,filename="./NAM_Results/bush_60%_pred.tif", format= "GTiff", overwrite = TRUE)
 rf=writeRaster(bushmask,filename="./NAM_Results/bushmask_60%.tif", format= "GTiff", overwrite = TRUE)
 
 #for 30-60% cover of woody plants
@@ -227,7 +227,6 @@ bush3.rf <- train(bush30 ~ ., data = bush3Train,
 bushrf3.test <- predict(bush3.rf, bush3Test) ## predict test-set
 confusionMatrix(bushrf3.test, bush3Test$bush30, "Y") ## print validation summaries
 bushrf3.pred <- predict(t, bush3.rf, type = "prob") ## spatial predictions
-
 imprf=varImp(bush3.rf)
 plot(imprf, main = "Variable contribution to Random Forest (expert), 30-60%")
 
@@ -243,7 +242,6 @@ bush3.gbm <- train(bush30 ~ ., data = bush3Train,
 bush3gbm.test <- predict(bush3.gbm, bush3Test) ## predict test-set
 confusionMatrix(bush3gbm.test, bush3Test$bush30, "Y") ## print validation summaries
 bush3gbm.pred=predict(t, bush3.gbm, type = "prob")
-
 impgbm=varImp(bush3.gbm)
 plot(impgbm, main = "Variable contribution to Gradient Boosting (expert), 30-60%")
 
@@ -262,7 +260,6 @@ bush30.nn <- train(bush30 ~ ., data = bush3Train,
 bush30nn.test <- predict(bush30.nn, bush3Test) ## predict test-set
 confusionMatrix(bush30nn.test, bush3Test$bush30, "Y") ## print validation summaries
 bush30nn.pred <- predict(t, bush30.nn, type = "prob") ## spatial predictions
-
 
 
 #variable contribution
@@ -306,6 +303,8 @@ bushens.pred <- predict(bush30.preds, bush30.ens, type="prob") ## spatial predic
 bush30ens=1-bushens.pred
 bushmask <- 1-bushens.pred > bush.thld
 
+bushens.pred <- predict(bush30.preds, bush30.ens, type="prob") ## spatial prediction
+bushmask <- 1-bushens.pred > bush.thld
 plot(bushmask, axes = F, legend = F)
 
 impens30=varImp(bush30.ens)
@@ -321,8 +320,6 @@ dir.create("NAM_results", showWarnings=F)
 #write tiff
 rf=writeRaster(bush30ens,filename="./NAM_results/bush_30%.tif", format= "GTiff", overwrite = TRUE)
 rf=writeRaster(bushmask,filename="./NAM_results/bush_30%_spec_sens.tif", format= "GTiff", overwrite = TRUE)
-rf=writeRaster(bushens.pred,filename="./NAM_results/bush_30%_pred.tif", format= "GTiff", overwrite = TRUE)
-
 
 
 ###___________________________________________________
@@ -337,6 +334,7 @@ bush15.rf <- train(bush15 ~ ., data = bush15Train,
                   trControl = oob)
 bush15rf.test <- predict(bush15.rf, bush15Test) ## predict test-set
 confusionMatrix(bush15rf.test, bush15Test$bush15, "Y") ## print validation summaries
+
 bush15rf.pred <- predict(t, bush15.rf, type = "prob") ## spatial predictions
 
 #variable contribution to RF 10-30%
@@ -355,6 +353,7 @@ bush15.gbm <- train(bush15 ~ ., data = bush15Train,
                    trControl = gbm)
 bush15gbm.test <- predict(bush15.gbm, bush15Test) ## predict test-set
 confusionMatrix(bush15gbm.test, bush15Test$bush15, "Y") ## print validation summaries
+
 bush15gbm.pred=predict(t, bush15.gbm, type = "prob")
 
 impgbm=varImp(bush15.gbm)
@@ -431,6 +430,7 @@ dir.create("NAM_results", showWarnings=F)
 #write tiff
 rf=writeRaster(bushmask,filename="./NAM_Results/bush_15%.tif", format= "GTiff", overwrite = TRUE)
 rf=writeRaster(bushens15,filename="./NAM_Results/bush_15%_pred.tif", format= "GTiff", overwrite = TRUE)
+
 ###___________________________________________________
 #woody cover 0-10%
 #+ Random forests <randomForest> -------------------------------------------
@@ -443,8 +443,8 @@ bush1.rf <- train(bush10 ~ ., data = bush1Train,
                   trControl = oob)
 bush1rf.test <- predict(bush1.rf, bush1Test) ## predict test-set
 confusionMatrix(bush1rf.test, bush1Test$bush10, "Y") ## print validation summaries
-bush1rf.pred <- predict(t, bush1.rf, type = "prob") ## spatial predictions
 
+bush1rf.pred <- predict(t, bush1.rf, type = "prob") ## spatial predictions
 #regression contribution
 imprf=varImp(bush1.rf)
 plot(imprf, main = "Variable contribution to Random Forest (expert), >0-10%")
@@ -462,7 +462,6 @@ bush1.gbm <- train(bush10 ~ ., data = bush1Train,
 bush1gbm.test <- predict(bush1.gbm, bush1Test) ## predict test-set
 confusionMatrix(bush1gbm.test, bush1Test$bush10, "Y") ## print validation summaries
 bush1gbm.pred=predict(t, bush1.gbm, type = "prob")
-
 impgbm=varImp(bush1.gbm)
 plot(impgbm, main = "Variable contribution to Gradient Boosting (expert), >0-10%")
 
@@ -481,6 +480,7 @@ bush10.nn <- train(bush10 ~ ., data = bush1Train,
 bush10nn.test <- predict(bush10.nn, bush1Test) ## predict test-set
 confusionMatrix(bush10nn.test, bush1Test$bush10, "Y") ## print validation summaries
 bush10nn.pred <- predict(t, bush10.nn, type = "prob") ## spatial predictions
+
 #variable contribution
 impnn=varImp(bush10.nn)
 plot(impnn, main = "Variable contribution to Neural Net (expert), >0-10%")
@@ -526,7 +526,6 @@ bushmask <- 1-bushens.pred > bush.thld
 plot(bushmask, axes = F, legend = F)
 
 
-
 #contribution to ensemble
 impens=varImp(bush10.ens)
 plot(impens, main = "Contribution to Ensemble Regression (expert), >0-10%")
@@ -542,9 +541,9 @@ dir.create("NAM_results", showWarnings=F)
 #write tiff
 
 
+
 rf=writeRaster(bushmask,filename="./NAM_Results/bush_10%.tif", format= "GTiff", overwrite = TRUE)
 rf=writeRaster(bushens10,filename="./NAM_Results/bush_10%_pred.tif", format= "GTiff", overwrite = TRUE)
-
 
 ###___________________________________________________
 #woody cover 0%
@@ -558,6 +557,7 @@ bush0.rf <- train(bush0 ~ ., data = bush0Train,
                   trControl = oob)
 bush0rf.test <- predict(bush0.rf, bush0Test) ## predict test-set
 confusionMatrix(bush0rf.test, bush0Test$bush0, "Y") ## print validation summaries
+
 bush0rf.pred <- predict(t, bush0.rf, type = "prob") ## spatial predictions
 
 #variable contribution
@@ -634,10 +634,10 @@ bush.eval <- evaluate(p=bushp[,1], a=busha[,1]) ## calculate ROC's on test set <
 bush.eval
 plot(bush.eval, 'ROC') ## plot ROC curve
 bush.thld <- threshold(bush.eval, 'spec_sens') ## TPR+TNR threshold for classification
+
 bushens.pred <- predict(bush0.preds, bush0.ens, type="prob") ## spatial prediction
 bushens0=1-bushens.pred
 bushmask <- bushens.pred > bush.thld
-bushmask1=bushens.pred>bush.thld1
 plot(bushmask, axes = F, legend = F)
 
 #Regression contribution to ensemble
