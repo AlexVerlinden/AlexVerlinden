@@ -288,6 +288,7 @@ bushens.pred <- predict(bush15.preds, bush15.ens, type="prob") ## spatial predic
 bushens15=1-bushens.pred
 plot(bushens15)
 bushmask=bushens15>bush.thld
+
 # Export Gtif's to "./NAM_results"
 
 #write tiff
