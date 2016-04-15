@@ -1,6 +1,6 @@
-#' Ensemble predictions of Ghana GeoSurvey cropland, woody vegetation cover,
-#' and rural settlement observations. 
-#' Alex Verlinden 2016 after M. Walsh, April 2014
+#' Ensemble predictions of Ghana GeoSurvey fractional, tree , shrub, grass and bare ground cover,
+#' at 100000 observations. using point intercept method on 16 points/ha
+#' Alex Verlinden 2016 modified after M. Walsh, April 2014
 # observations collected by crowdsourcing using "Geosurvey"  in October and November 2015 
 # Required packages
 # install.packages(c("downloader","raster","doMC",rgdal","caret","randomForest","gbm","nnet","glmnet","dismo")), dependencies=TRUE)
@@ -16,9 +16,9 @@ require(dismo)
 require(deepnet)
 require(foreach)
 
-#rm(list=ls())
+#rm(list=ls()) # to clear memory
 #+ Data downloads ----------------------------------------------------------
-# Create a "Data" folder in your current working directory
+# Create a "Ghana Data" folder in your current working directory
 dir.create("GH_data", showWarnings=F)
 dat_dir <- "./GH_data"
 
@@ -28,12 +28,12 @@ unzip("./GH_data/Ghana_100k.zip", exdir="./GH_data", overwrite=T)
 geofrac <- read.table(paste(dat_dir, "/Ghana_100000ha.csv", sep=""), header=T, sep=",")
 geofrac <- na.omit(geofrac)
 
-# download Ghana Gtifs (~258 Mb) 250 m and stack in raster
+# download Ghana Gtifs (~165 Mb!!!) 250 m and stack in raster
 download.file("https://www.dropbox.com/s/7sqifq7bhwh826r/GH_250_grids.zip?dl=0", "./GH_data/GH_250_grids.zip", mode="wb")
 unzip("./GH_data/GH_250_grids.zip", exdir="./GH_data", overwrite=T)
 glist <- list.files(path="./GH_data", pattern="tif", full.names=T)
 grid <- stack(glist)
-t=scale(grid, center=TRUE,scale=TRUE)
+t=scale(grid, center=TRUE,scale=TRUE) # scale all covariates
 #+ Data setup --------------------------------------------------------------
 # Project GeoSurvey coords to grid CRS
 geofrac.proj <- as.data.frame(project(cbind(geofrac$Longitude, geofrac$Latitude), "+proj=laea +ellps=WGS84 +lon_0=20 +lat_0=5 +units=m +no_defs"))
@@ -51,17 +51,17 @@ BRG <- round(geofrac$BRG*6.25)
 BRGdat <- cbind.data.frame(BRG, geosgrid)
 BRGdat <- na.omit(BRGdat)
 
-#Grass
+#Grass (GRS 0-100)
 GRS=round(geofrac$GRS*6.25)
 GRSdat=cbind.data.frame(GRS, geosgrid)
 GRSdat <- na.omit(GRSdat)
 
-#shrubs
+#shrubs (SRB 0-100)
 SRB=round(geofrac$SHRB*6.25)
 SRBdat=cbind.data.frame(SRB, geosgrid)
 SRBdat <- na.omit(SRBdat)
 
-#trees
+#trees (TRE 0-100)
 TRE=round(geofrac$TREE*6.25)
 TREdat=cbind.data.frame(TRE, geosgrid)
 TREdat <- na.omit(TREdat)
@@ -98,7 +98,7 @@ hist(TRE)
 hist(GRS)
 hist(SRB)
 par(mfrow=c(1,1))
-#test for Poisson model fitting data
+#test for Poisson model fitting data needs attention
 BRG.test=glm (BRG~., data=brgTrain, family= "poisson")
 1 - pchisq(summary(BRG.test)$deviance,
            summary(BRG.test)$df.residual)
@@ -115,7 +115,7 @@ model.zip.3 = zeroinfl(BRG~ .|1, data = crpTrain, dist = "negbin")
 summary(model.zip.3)
 # this means the model should use zero inflated Poisson distribution ?
 
-#glmnet can only be used after testing for Poisson distribution--------------------------------
+#glmnet Poisson model can only be used after testing for Poisson distribution--------------------------------
 #objControl <- trainControl(method='cv', number=10, returnResamp='none')
 #glmnet using poisson distribution of Cropland counts 
 #CRP.glm=train(CRP ~ ., data=crpTrain, family= "poisson",method="glmnet",metric="RMSE", trControl=objControl)
@@ -124,7 +124,7 @@ summary(model.zip.3)
 #plot(varImp(CRP.glm,scale=F))
 
 # Deep neural net models --------------------------------------------------
-# Start foreach to parallelize model fitting  (I do not see improvement)
+# Start foreach to parallelize model fitting  
 #detectCores()
 registerDoMC(cores=4)
 #getDoParWorkers()
