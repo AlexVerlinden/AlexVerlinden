@@ -134,7 +134,7 @@ plot(bangbm.pred, main= "Banana prediction, GBM")
 #neural net
 ban.nn=train(ban ~ ., data=banTrain, 
               family= "binomial",
-              method="nnet",metric="Accuracy", trControl=objControl)
+              method="nnet",metric="ROC", trControl=objControl)
 predictions <- predict(ban.nn, banTest[,2:27], type="prob")
 #confusionMatrix on cross validation
 confusionMatrix(ban.nn)
@@ -161,7 +161,7 @@ names(banensTest)[1]= "Banana"
 # 10-fold CV
 ens <- trainControl(method = "cv", number = 10)
 
-# presence/absence of yam (present = Y, absent = N)
+# presence/absence of Banana (present = Y, absent = N)
 ban.ens <- train(Banana ~. , data = banensTest,
                  family = "binomial", 
                  method = "glmnet",
@@ -186,3 +186,81 @@ plot(varImp(ban.ens,scale=F))
 dir.create("./TZ_results")
 rf=writeRaster(1-banens.pred, filename="./TZ_results/TZ_ban_2016_ens.tif", format= "GTiff", overwrite=TRUE)
 rf=writeRaster(banensmask2, filename="./TZ_results/TZ_ban_2016_mask.tif", format= "GTiff", overwrite=TRUE)
+
+#all data
+#set up data for caret
+objControl <- trainControl(method='cv', number=5, classProbs = T,
+                           returnResamp='none',summaryFunction = twoClassSummary)
+#glmnet using binomial distribution for banana
+ban.glm=train(ban ~ ., data=banpresabs, family= "binomial",
+              method="glmnet",metric="ROC", trControl=objControl)
+#confusionMatrix on cross validation
+confusionMatrix(ban.glm)
+#spatial predictions
+banglm.pred <- predict(grid,ban.glm, type="prob") 
+banglmnet.pred=1-banglm.pred
+
+#randomforest
+ban.rf=train(ban ~ ., data=banpresabs, family= "binomial",method="rf",
+             metric="ROC", trControl=objControl)
+#confusionMatrix on cross validation
+confusionMatrix(ban.rf)
+#spatial predictions
+banrf.pred <- predict(grid,ban.rf, type="prob") 
+banrf.pred=1-banrf.pred
+plot(banrf.pred, main= "Banana prediction, RandomForest")
+
+#gbm
+ban.gbm=train(ban ~ ., data=banpresabs, 
+              #family= "binomial",
+              method="gbm",metric="ROC", trControl=objControl)
+#confusionMatrix on cross validation
+confusionMatrix(ban.gbm)
+#spatial predictions
+bangbm.pred <- predict(grid,ban.gbm, type="prob") 
+bangbm.pred=1-bangbm.pred
+plot(bangbm.pred, main= "Banana prediction, GBM")
+
+#neural net
+ban.nn=train(ban ~ ., data=banpresabs, 
+             family= "binomial",
+             method="nnet",metric="ROC", trControl=objControl)
+#confusionMatrix on cross validation
+confusionMatrix(ban.nn)
+#spatial predictions
+bannn.pred <- predict(grid,ban.nn, type="prob") 
+bannn.pred=1-bannn.pred
+plot(bannn.pred, main= "Banana prediction, NNET")
+
+#+ Ensemble predictions <glm> <rf>, <gbm>, <dnn>  -------------------------------
+# Ensemble set-up
+pred <- stack(banglmnet.pred, 
+              banrf.pred, bangbm.pred, bannn.pred)
+names(pred) <- c("banglm",
+                 "banrf","bangbm", "bannn")
+geospred <- extract(pred, ban.proj)
+# presence/absence of banana (present = Y, absent = N)
+banens <- cbind.data.frame(ban$Banana, geospred)
+banens <- na.omit(banens)
+banensTest <- banens[-banIndex,] ## replicate previous test set
+names(banensTest)[1]= "Banana"
+
+
+# Regularized ensemble weighting on the test set <glmnet>
+# 10-fold CV
+ens <- trainControl(method = "cv", number = 10)
+
+# presence/absence of Banana (present = Y, absent = N)
+ban.ens <- train(Banana ~. , data = banensTest,
+                 family = "binomial", 
+                 method = "glmnet",
+                 trControl = ens)
+banens.pred <- predict(pred, ban.ens, type="prob") ## spatial prediction
+plot((1-banens.pred)*crp, axes=F, main ="Banana probability ensemble in cropland")
+banensmask <- 1-banens.pred >ban.thld
+banensmask2= banensmask*crp
+plot(banensmask2, axes = F, legend = F, main= "Ensemble distribution prediction of Banana")
+
+#final for all data
+rf=writeRaster(1-banens.pred, filename="./TZ_results/TZ_ban_2016_ens_all.tif", format= "GTiff", overwrite=TRUE)
+rf=writeRaster(banensmask2, filename="./TZ_results/TZ_ban_2016_mask_all.tif", format= "GTiff", overwrite=TRUE)
