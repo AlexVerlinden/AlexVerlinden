@@ -1,9 +1,9 @@
-# TZ Cropland predictions, including woodland and human settlements
-# First woodland and human settlements are predicted and added as covariates
+# UG Cropland predictions, including woodland and human settlements
+# First woodland and human settlements are predicted and added as covariates for cropland
 #ensemble predictions models based on Walsh 2016
 # Alex Verlinden 2017
 #+ Required packages
-# install.packages(c("downloader","raster","rgdal", "caret", "doParallel")), dependencies=TRUE)
+# install.packages(c("downloader","raster","rgdal", "caret", "doParallel", "e1071")), dependencies=TRUE)
 require(downloader)
 require(raster)
 require(rgdal)
@@ -13,39 +13,43 @@ require(doParallel)
 #+ Data downloads ----------------------------------------------------------
 # Create a "Data" folder in your current working directory
 
-dir.create("TZ_crops", showWarnings=F)
-dat_dir <- "./TZ_crops"
+dir.create("UG_crops", showWarnings=F)
+dat_dir <- "./UG_crops"
 
 #Download all geosurvey data
-download.file("https://www.dropbox.com/s/339k17oic3n3ju6/TZ_geos_012015.csv?raw=1", "./TZ_crops/TZ_geos_012015.csv", mode="wb")
-geos <- read.csv(paste(dat_dir, "/TZ_geos_012015.csv", sep=""), header=T, sep=",")
-geos <- geos[,1:7]
-#download grids for TZ  ~ 510 MB
-download.file("https://www.dropbox.com/s/r25qfm0yikiubeh/TZ_GRIDS250m.zip?raw=1","./TZ_crops/TZ_GRIDS250m.zip",  mode="wb")
-unzip("./TZ_crops/TZ_grids250m.zip", exdir=dat_dir, overwrite=T)
+download.file("https://www.dropbox.com/s/e4fd5wtvjdn0ncn/UG_geos_all.csv?dl=0", "./UG_crops/UG_geos_all.csv", mode="wb")
+geos <- read.csv(paste(dat_dir, "/UG_geos_all.csv", sep=""), header=T, sep=",")
+
+#download grids for UG  ~ 87 MB
+download.file("https://www.dropbox.com/s/55cg9e95mdwd0ut/UG_grids_250m.zip?dl=0","./UG_crops/UG_GRIDS250m.zip",  mode="wb")
+unzip("./UG_crops/UG_grids250m.zip", exdir=dat_dir, overwrite=T)
 glist <- list.files(path=dat_dir, pattern="tif", full.names=T)
 grid <- stack(glist)
 
 t=scale(grid, center=TRUE,scale=TRUE) # scale all covariates
 
-names(t)= c("SWIR1", "SWIR2", "Al", "PREC_MFI", "BLD", "BDL_DST", 
-           "CEC", "CRPENS","Ca", "Mg", "Na", "B", "fPARavg", "fPARsd",
-           "fPARvar", "B1", "B2", "B3", "B7", "NPP", "MAP", "LAIavg",
-           "LAIsd", "LAIvar", "LSTD", "LSTN", "NTOT", "ORC", "pH",
-           "RDS_dist", "RUE", "sent1vv", "SND", "ELEV", "TWI", "WDPA")
+#+ Data setup --------------------------------------------------------------
+#drop UG protected
+t=dropLayer(t, 23) # protected areas turn to too many NAs
+names(t)= c("Al", "B", "BIO12", "BIOMFI", "BLD", "Ca", "CEC", "PRECavg", "PREC_2015", "EVI",
+            "LSTD", "LSTN", "B1","B2", "B3", "B7","Mg", "Na", "NDVI", "Ntot", "ORC", "PH",
+            "RDS", "SND", "FPARavg", "FPARstd", "FPARvar", "ELEV", "TWI")
 #set projection of geosurvey
-geo.proj=as.data.frame(project(cbind(geos$Lon, geos$Lat), "+proj=laea +ellps=WGS84 +lon_0=20 +lat_0=5 +units=m +no_defs"))
+geo.proj=as.data.frame(project(cbind(geos$Longitude, geos$Latitude), "+proj=laea +ellps=WGS84 +lon_0=20 +lat_0=5 +units=m +no_defs"))
 colnames(geo.proj) <- c("x","y")
 coordinates(geo.proj) <- ~x+y
 projection(geo.proj) <- projection(grid)
 
-#+ Data setup --------------------------------------------------------------
+#names geosurvey
+geos=geos[,7:10]
+colnames(geos)= c("Banana", "HSP", "CRP", "WDL")
+
 # Extract gridded variables at GeoSurvey locations
-geogrid=extract(t,geo.proj)#extract 12 k
+geogrid=extract(t,geo.proj)#extract 19 k
 # Assemble dataframes
 
 #presence absence of Woodland >60%
-WDL1=geos$WCP
+WDL1=geos$WDL
 prop.table(table(WDL1))
 wdl1dat=cbind.data.frame(WDL1, geogrid)
 wdl1dat=na.omit(wdl1dat)
@@ -76,7 +80,7 @@ WDL1.rf <- train(WDL1 ~ ., data = wdl1Train,
                  trControl = objControl)
 confusionMatrix(WDL1.rf)
 WDL1rf.pred <- predict(t, WDL1.rf, type = "prob") ## spatial predictions
-plot(varImp(WDL1.rf,scale=F), main= "Variable importance Random Forest")
+plot(varImp(WDL1.rf,scale=F), main = "covariate importance Random Forest Woodland")
 
 #gbm
 WDL1.gbm <- train(WDL1 ~ ., data = wdl1Train,
@@ -98,12 +102,12 @@ WDL1nn.pred <- predict(t, WDL1.nn, type="prob")
 
 #ensemble regression glmnet (elastic net)
 pred <- stack(1-WDL1rf.pred, 
-             1-WDL1gbm.pred, 1-WDL1nn.pred)
+              1-WDL1gbm.pred, 1-WDL1nn.pred)
 names(pred) <- c("WDL1rf","WDL1gbm", "WDL1nn")
 geospred <- extract(pred, geo.proj)
 
 # presence/absence of Woodland (present = Y, absent = N)
-WDL1ens <- cbind.data.frame(geos$WCP, geospred)
+WDL1ens <- cbind.data.frame(geos$WDL, geospred)
 WDL1ens <- na.omit(WDL1ens)
 WDL1ensTest <- WDL1ens[-wdl1Index,] ## replicate previous test set
 names(WDL1ensTest)[1]= "WDL1"
@@ -114,9 +118,9 @@ ens <- trainControl(method = "cv", number = 10)
 
 # presence/absence of woodland (present = Y, absent = N)
 WDL1.ens <- train(WDL1 ~. , data = WDL1ensTest,
-                 family = "binomial", 
-                 method = "glmnet",
-                 trControl = ens)
+                  family = "binomial", 
+                  method = "glmnet",
+                  trControl = ens)
 confusionMatrix(WDL1.ens) # print validation summaries on crossvalidation
 WDL1ens.pred <- predict(WDL1.ens, WDL1ensTest,  type="prob") ## predict test-set
 WDL1.test <- cbind(WDL1ensTest, WDL1ens.pred)
@@ -132,27 +136,27 @@ objControl <- trainControl(method='cv', number=10, returnResamp='none',
                            allowParallel = TRUE, classProbs = TRUE,
                            summaryFunction= twoClassSummary)
 WDL.rf <- train(WDL1 ~ ., data = wdl1dat,
-                 method = "rf",
-                 ntree=501,
-                 metric= "ROC",
-                 trControl = objControl)
+                method = "rf",
+                ntree=501,
+                metric= "ROC",
+                trControl = objControl)
 confusionMatrix(WDL.rf)
 WDLrf.pred <- predict(t, WDL.rf, type = "prob") ## spatial predictions
 plot(varImp(WDL.rf,scale=F))
 
 #gbm
 WDL.gbm <- train(WDL1 ~ ., data = wdl1dat,
-                  method = "gbm",
-                  metric = "ROC",
-                  trControl = objControl)
+                 method = "gbm",
+                 metric = "ROC",
+                 trControl = objControl)
 confusionMatrix(WDL.gbm)
 WDLgbm.pred <- predict(t, WDL.gbm, type = "prob") ## spatial predictions
 #neural net
 WDL.nn <- train(WDL1 ~., data=wdl1dat, 
-                 method = "nnet", 
-                 metric= "ROC",
-                 #preProc = c("center", "scale"), 
-                 trControl = objControl)
+                method = "nnet", 
+                metric= "ROC",
+                #preProc = c("center", "scale"), 
+                trControl = objControl)
 confusionMatrix((WDL.nn))
 WDLnn.pred <- predict(t, WDL.nn, type="prob")
 
@@ -163,34 +167,50 @@ names(pred) <- c("WDLrf","WDLgbm", "WDLnn")
 geospred <- extract(pred, geo.proj)
 
 # presence/absence of Woodland (present = Y, absent = N)
-WDLens <- cbind.data.frame(geos$WCP, geospred)
+WDLens <- cbind.data.frame(geos$WDL, geospred)
 WDLens <- na.omit(WDLens)
 WDLensTest <- WDLens[-wdl1Index,] ## replicate previous test set
 names(WDLensTest)[1]= "WDL1"
 
 # Regularized ensemble weighting on the test set <glmnet>
 # 10-fold CV
-ens <- trainControl(method = "cv", number = 10)
+#ens <- trainControl(method = "cv", number = 10)
+ens<- trainControl(method='cv', number=10, returnResamp='none', 
+                           allowParallel = TRUE, classProbs = TRUE,
+                           summaryFunction= twoClassSummary)
 
 # presence/absence of Woodland (present = Y, absent = N)
 WDL.ens <- train(WDL1 ~. , data = WDLensTest,
-                  family = "binomial", 
-                  method = "glmnet",
-                  trControl = ens)
-confusionMatrix(WDL1.ens)
+                 family = "binomial", 
+                 method = "rf",
+                 trControl = ens)
+confusionMatrix(WDL.ens)
 #spatial predictions
 WDLens.pred <- predict(pred, WDL.ens, type="prob") 
-dir.create("TZ_results", showWarnings=F)
-writeRaster(1-WDLens.pred, filename = "./TZ_results/TZ_woodlandpred.tif", overwrite=TRUE )
+dir.create("UG_results", showWarnings=F)
+writeRaster(1-WDLens.pred, filename = "./UG_results/UG_woodlandpred.tif", overwrite=TRUE )
 
-TZ_woodpred=1-WDLens.pred
-TZ_woodpred=scale(TZ_woodpred, center=TRUE,scale=TRUE)
-t=addLayer(t,TZ_woodpred)
-names(t)[37]= "WDLpred"
+WDLens.pred <- predict(WDL.ens, WDLensTest,  type="prob") ## predict test-set
+WDL.test <- cbind(WDLensTest, WDLens.pred)
+WDLp <- subset(WDL.test, WDL1=="Y", select=c(Y))
+WDLa <- subset(WDL.test, WDL1=="N", select=c(Y))
+WDL.eval <- evaluate(p=WDLp[,1], a=WDLa[,1]) ## calculate ROC's on test set <dismo>
+WDL.eval
+WDL.thld <- threshold(WDL.eval, 'spec_sens')
+WDLens.pred <- predict(pred, WDL.ens, type="prob") 
+WDL.mask= (1-WDLens.pred)>WDL.thld
+writeRaster(WDL.mask, filename = "./UG_results/UG_woodlandmask.tif", overwrite=TRUE )
+
+WDLens.pred <- predict(pred, WDL.ens, type="prob") 
+
+WDLENS=1-WDLens.pred
+WDLENS=scale(WDLENS, center=TRUE,scale=TRUE)
+t=addLayer(t,WDLENS)
+names(t)[30]= "WDLENS"
 #human settlements
 #+ Data setup --------------------------------------------------------------
 # Extract gridded variables at GeoSurvey locations
-geogrid=extract(t,geo.proj)#extract 12 k
+geogrid=extract(t,geo.proj)#extract 19 k
 # Assemble dataframes
 
 #presence absence of settlements
@@ -280,27 +300,27 @@ objControl <- trainControl(method='cv', number=10, returnResamp='none',
                            allowParallel = TRUE, classProbs = TRUE,
                            summaryFunction= twoClassSummary)
 HSP.rf <- train(HSP1 ~ ., data = hsp1dat,
-                 method = "rf",
-                 ntree=501,
-                 metric= "ROC",
-                 trControl = objControl)
+                method = "rf",
+                ntree=501,
+                metric= "ROC",
+                trControl = objControl)
 confusionMatrix(HSP.rf)
 HSPrf.pred <- predict(t, HSP.rf, type = "prob") ## spatial predictions
 
 
 #gbm
 HSP.gbm <- train(HSP1 ~ ., data = hsp1dat,
-                  method = "gbm",
-                  metric = "ROC",
-                  trControl = objControl)
+                 method = "gbm",
+                 metric = "ROC",
+                 trControl = objControl)
 confusionMatrix(HSP.gbm)
 HSPgbm.pred <- predict(t, HSP.gbm, type = "prob") ## spatial predictions
 #neural net
 HSP.nn <- train(HSP1 ~., data=hsp1dat, 
-                 method = "nnet", 
-                 metric= "ROC",
-                 #preProc = c("center", "scale"), 
-                 trControl = objControl)
+                method = "nnet", 
+                metric= "ROC",
+                #preProc = c("center", "scale"), 
+                trControl = objControl)
 confusionMatrix((HSP.nn))
 
 HSPnn.pred <- predict(t, HSP.nn, type="prob")
@@ -311,7 +331,7 @@ pred <- stack(1-HSPrf.pred,
 names(pred) <- c("HSPrf","HSPgbm", "HSPnn")
 geospred <- extract(pred, geo.proj)
 
-# presence/absence of Woodland (present = Y, absent = N)
+# presence/absence of settlements (present = Y, absent = N)
 HSPens <- cbind.data.frame(geos$HSP, geospred)
 HSPens <- na.omit(HSPens)
 HSPensTest <- HSPens[-hsp1Index,] ## replicate previous test set
@@ -323,18 +343,19 @@ ens <- trainControl(method = "cv", number = 10)
 
 # presence/absence of hsp (present = Y, absent = N)
 HSP.ens <- train(HSP ~. , data = HSPensTest,
-                  family = "binomial", 
-                  method = "glmnet",
-                  trControl = ens)
+                 family = "binomial", 
+                 method = "glmnet",
+                 trControl = ens)
+confusionMatrix(HSP.ens)
 #spatial predictions
 HSPens.pred <- predict(pred, HSP.ens, type="prob") 
-dir.create("TZ_results", showWarnings=F)
-writeRaster(1-HSPens.pred, filename = "./TZ_results/TZ_hsppred.tif", overwrite=TRUE )
+dir.create("UG_results", showWarnings=F)
+writeRaster(1-HSPens.pred, filename = "./UG_results/UG_hsppred.tif", overwrite=TRUE )
 
-TZ_hsppred=1-HSPens.pred
-TZ_hsppred=scale(TZ_hsppred, center=TRUE,scale=TRUE)
-t=addLayer(t,TZ_hsppred)
-names(t)[38]= "HSPpred"
+UG_hsppred=1-HSPens.pred
+UG_hsppred=scale(UG_hsppred, center=TRUE,scale=TRUE)
+t=addLayer(t,UG_hsppred)
+names(t)[31]= "HSPENS" #check number
 
 # Cropland prediction
 # Assemble dataframes
@@ -342,7 +363,7 @@ names(t)[38]= "HSPpred"
 #presence absence of cropland
 CRP1=geos$CRP
 prop.table(table(CRP1))
-geogrid=extract(t,geo.proj)#extract 12 k
+geogrid=extract(t,geo.proj)#extract 19 k
 crp1dat=cbind.data.frame(CRP1, geogrid)
 crp1dat=na.omit(crp1dat)
 colnames(crp1dat)[1]= "CRP1"
@@ -354,7 +375,7 @@ set.seed=seed
 # cropland train/test split
 crp1Index <- createDataPartition(crp1dat$CRP1, p = 2/3, list = FALSE, times = 1)
 crp1Train <- crp1dat[ crp1Index,]
-crp1Test  <- hsp1dat[-crp1Index,]
+crp1Test  <- crp1dat[-crp1Index,]
 
 
 mc <- makeCluster(detectCores())
@@ -371,24 +392,24 @@ CRP1.rf <- train(CRP1 ~ ., data = crp1Train,
                  metric= "ROC",
                  trControl = objControl)
 confusionMatrix(CRP1.rf)
-plot(varImp(CRP1.rf,scale=F), main = "covariate importance Random Forest Cropland")
+plot(varImp(CRP1.rf,scale=F), main = "Variable importance Random Forest Cropland")
 CRP1rf.pred <- predict(t, CRP1.rf, type = "prob") ## spatial predictions
 
 
 
 #gbm
 CRP1.gbm <- train(CRP1 ~ ., data = crp1Train,
-                 method = "gbm",
-                 metric = "ROC",
-                 trControl = objControl)
+                  method = "gbm",
+                  metric = "ROC",
+                  trControl = objControl)
 confusionMatrix(CRP1.gbm)
 CRP1gbm.pred <- predict(t, CRP1.gbm, type = "prob") ## spatial predictions
 #neural net
 CRP1.nn <- train(CRP1 ~., data=crp1Train, 
-                method = "nnet", 
-                metric= "ROC",
-                #preProc = c("center", "scale"), 
-                trControl = objControl)
+                 method = "nnet", 
+                 metric= "ROC",
+                 #preProc = c("center", "scale"), 
+                 trControl = objControl)
 confusionMatrix(CRP1.nn)
 
 CRP1nn.pred <- predict(t,CRP1.nn, type="prob")
@@ -460,7 +481,7 @@ pred <- stack(1-CRPrf.pred,
 names(pred) <- c("CRPrf","CRPgbm", "CRPnn")
 geospred <- extract(pred, geo.proj)
 
-# presence/absence of Cropland (present = Y, absent = N)
+# presence/absence of Woodland (present = Y, absent = N)
 CRPens <- cbind.data.frame(geos$CRP, geospred)
 CRPens <- na.omit(CRPens)
 CRPensTest <- CRPens[-crp1Index,] ## replicate previous test set
@@ -485,7 +506,161 @@ CRP.eval
 CRP.thld <- threshold(CRP.eval, 'spec_sens') 
 #spatial predictions
 CRPens.pred <- predict(pred, CRP.ens, type="prob") 
-dir.create("TZ_results", showWarnings=F)
-writeRaster(1-CRPens.pred, filename = "./TZ_results/TZ_crppred.tif", overwrite= TRUE )
+dir.create("UG_results", showWarnings=F)
+writeRaster(1-CRPens.pred, filename = "./UG_results/UG_crppred.tif", overwrite= TRUE )
 cropmask=(1-CRPens.pred)>CRP.thld
-writeRaster(cropmask, filename="./TZ_results/TZ_cropmask_250m.tif", overwrite=TRUE )
+writeRaster(cropmask, filename="./UG_results/UG_cropmask_250m.tif", overwrite=TRUE )
+UG_crop=1-CRPens.pred
+
+UG_crop=scale(UG_crop, center=TRUE,scale=TRUE)
+t=addLayer(t,UG_crop)
+names(t)[32]= "CROPens" #check number
+
+#presence absence of banana
+BAN1=geos$Banana
+prop.table(table(BAN1))
+geogrid=extract(t,geo.proj)#extract 19 k
+ban1dat=cbind.data.frame(BAN1, geogrid)
+ban1dat=na.omit(ban1dat)
+colnames(ban1dat)[1]= "BAN1"
+#First prediction of banana
+#+ Split data into train and test sets ------------------------------------
+seed=12345
+set.seed=seed
+
+# banana train/test split
+ban1Index <- createDataPartition(ban1dat$BAN1, p = 2/3, list = FALSE, times = 1)
+ban1Train <- ban1dat[ ban1Index,]
+ban1Test  <- ban1dat[-ban1Index,]
+
+mc <- makeCluster(detectCores())
+registerDoParallel(mc)
+
+#RF--------------------------------
+objControl <- trainControl(method='cv', number=10, returnResamp='none', 
+                           allowParallel = TRUE, classProbs = TRUE,
+                           summaryFunction= twoClassSummary)
+BAN1.rf <- train(BAN1 ~ ., data = ban1Train,
+                 method = "rf",
+                 ntree=501,
+                 metric= "ROC",
+                 trControl = objControl)
+confusionMatrix(BAN1.rf)
+plot(varImp(BAN1.rf,scale=F), main = "covariate importance Random Forest for Banana")
+BAN1rf.pred <- predict(t, BAN1.rf, type = "prob") ## spatial predictions
+
+#gbm
+BAN1.gbm <- train(BAN1 ~ ., data = ban1Train,
+                  method = "gbm",
+                  metric = "ROC",
+                  trControl = objControl)
+confusionMatrix(BAN1.gbm)
+BAN1gbm.pred <- predict(t, BAN1.gbm, type = "prob") ## spatial predictions
+#neural net
+BAN1.nn <- train(BAN1 ~., data=ban1Train, 
+                 method = "nnet", 
+                 metric= "ROC",
+                 #preProc = c("center", "scale"), 
+                 trControl = objControl)
+confusionMatrix(BAN1.nn)
+
+BAN1nn.pred <- predict(t,BAN1.nn, type="prob")
+
+#for cropland
+#ensemble regression glmnet (elastic net)
+pred <- stack(1-BAN1rf.pred, 
+              1-BAN1gbm.pred, 1-BAN1nn.pred)
+names(pred) <- c("BAN1rf","BAN1gbm", "BAN1nn")
+geospred <- extract(pred, geo.proj)
+
+# presence/absence of Cropland (present = Y, absent = N)
+BAN1ens <- cbind.data.frame(geos$Banana, geospred)
+BAN1ens <- na.omit(BAN1ens)
+BAN1ensTest <- BAN1ens[-ban1Index,] ## replicate previous test set
+names(BAN1ensTest)[1]= "BAN1"
+
+# Regularized ensemble weighting on the test set <glmnet>
+# 10-fold CV
+ens <- trainControl(method = "cv", number = 10)
+
+# presence/absence of hsp (present = Y, absent = N)
+BAN1.ens <- train(BAN1 ~. , data = BAN1ensTest,
+                  family = "binomial", 
+                  method = "glmnet",
+                  trControl = ens)
+confusionMatrix(BAN1.ens) # print validation summaries on crossvalidation
+BAN1ens.pred <- predict(BAN1.ens, BAN1ensTest,  type="prob") ## predict test-set
+BAN1.test <- cbind(BAN1ensTest, BAN1ens.pred)
+BAN1p <- subset(BAN1.test, BAN1=="Y", select=c(Y))
+BAN1a <- subset(BAN1.test, BAN1=="N", select=c(Y))
+BAN1.eval <- evaluate(p=BAN1p[,1], a=BAN1a[,1]) ## calculate ROC's on test set <dismo>
+BAN1.eval
+plot(BAN1.eval, 'ROC')
+
+#for all data RF--------------------------------
+objControl <- trainControl(method='cv', number=10, returnResamp='none', 
+                           allowParallel = TRUE, classProbs = TRUE,
+                           summaryFunction= twoClassSummary)
+BAN.rf <- train(BAN1 ~ ., data = ban1dat,
+                method = "rf",
+                ntree=501,
+                metric= "ROC",
+                trControl = objControl)
+confusionMatrix(BAN.rf)
+BANrf.pred <- predict(t, BAN.rf, type = "prob") ## spatial predictions
+
+
+#gbm
+BAN.gbm <- train(BAN1 ~ ., data = ban1dat,
+                 method = "gbm",
+                 metric = "ROC",
+                 trControl = objControl)
+confusionMatrix(BAN.gbm)
+BANgbm.pred <- predict(t, BAN.gbm, type = "prob") ## spatial predictions
+#neural net
+BAN.nn <- train(BAN1 ~., data=ban1dat, 
+                method = "nnet", 
+                metric= "ROC",
+                #preProc = c("center", "scale"), 
+                trControl = objControl)
+confusionMatrix(BAN.nn)
+
+BANnn.pred <- predict(t, BAN.nn, type="prob")
+
+#ensemble regression glmnet (elastic net)
+pred <- stack(1-BANrf.pred, 
+              1-BANgbm.pred, 1-BANnn.pred)
+names(pred) <- c("BANrf","BANgbm", "BANnn")
+geospred <- extract(pred, geo.proj)
+
+# presence/absence of Banana (present = Y, absent = N)
+BANens <- cbind.data.frame(geos$Banana, geospred)
+BANens <- na.omit(BANens)
+BANensTest <- BANens[-ban1Index,] ## replicate previous test set
+names(BANensTest)[1]= "BAN"
+
+# Regularized ensemble weighting on the test set <glmnet>
+# 10-fold CV
+ens <- trainControl(method = "cv", number = 10)
+
+# presence/absence of hsp (present = Y, absent = N)
+BAN.ens <- train(BAN ~. , data = BANensTest,
+                 family = "binomial", 
+                 method = "glmnet",
+                 trControl = ens)
+#define threshold
+BANens.pred <- predict(BAN.ens, BANensTest,  type="prob") ## predict test-set
+BAN.test <- cbind(BANensTest, BANens.pred)
+BANp <- subset(BAN.test, BAN=="Y", select=c(Y))
+BANa <- subset(BAN.test, BAN=="N", select=c(Y))
+BAN.eval <- evaluate(p=BANp[,1], a=BANa[,1]) ## calculate ROC's on test set <dismo>
+BAN.eval
+BAN.thld <- threshold(BAN.eval, 'spec_sens') 
+#spatial predictions
+BANens.pred <- predict(pred, BAN.ens, type="prob") 
+dir.create("UG_results", showWarnings=F)
+writeRaster(1-BANens.pred, filename = "./UG_results/UG_BANpred.tif", overwrite= TRUE )
+BANmask=(1-BANens.pred)>BAN.thld
+writeRaster(BANmask2, filename="./UG_results/UG_BANmask2_250m.tif", overwrite=TRUE )
+UG_BAN=1-BANens.pred
+plot(UG_BAN, main="Banana ensemble Predictions")
